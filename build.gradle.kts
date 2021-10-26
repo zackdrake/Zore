@@ -14,6 +14,7 @@ repositories {
 
 dependencies {
     implementation("dev.kord:kord-core:0.8.0-M7")
+    implementation("io.github.cdimascio:dotenv-kotlin:6.2.2")
 }
 
 tasks.withType<KotlinCompile>() {

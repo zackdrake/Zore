@@ -1,10 +1,15 @@
 import dev.kord.core.*
 import dev.kord.core.entity.*
 import dev.kord.core.event.message.*
+import io.github.cdimascio.dotenv.Dotenv
+import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.delay
 
 suspend fun main() {
-    val client = Kord("OTAyNDc5Mjk4MTk4MzkyODMy.YXfBVw.VCJ8uAQBQvJDu1LACEcmVwVdQTA")
+    val dotenv = dotenv()
+    val token: String = dotenv["DISCORD_BOT_TOKEN"]
+    println(token)
+    val client = Kord(token)
     val pingPong = ReactionEmoji.Unicode("\uD83C\uDFD3")
 
     // On message create
