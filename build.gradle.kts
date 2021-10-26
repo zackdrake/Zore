@@ -12,7 +12,9 @@ repositories {
     mavenCentral()
 }
 
-
+dependencies {
+    implementation("dev.kord:kord-core:0.8.0-M7")
+}
 
 tasks.withType<KotlinCompile>() {
     kotlinOptions.jvmTarget = "1.8"
