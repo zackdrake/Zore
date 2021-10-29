@@ -1,4 +1,4 @@
-import dev.kord.common.entity.Snowflake
+import dev.kord.common.annotation.KordVoice
 import dev.kord.core.*
 import dev.kord.core.entity.*
 import dev.kord.core.entity.channel.VoiceChannel
@@ -10,7 +10,8 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
-import kotlinx.coroutines.delay
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 val dotenv = dotenv()
 val clientHttp = HttpClient(CIO)
@@ -45,6 +46,7 @@ suspend fun main() {
     clientDiscord.login()
 }
 
+@OptIn(KordVoice::class)
 suspend fun playMusic(message: Message, clientDiscord: Kord) {
     // TODO
     // Get first youtube video with music title
@@ -60,6 +62,7 @@ suspend fun playMusic(message: Message, clientDiscord: Kord) {
     // Check if it's a youtube link
     if (msgSplit[1].startsWith("https://www.youtube.com/") || msgSplit[1].startsWith("https://youtu.be/")) {
         // Youtube link
+        val ytLink = msgSplit[1]
         message.channel.createMessage(message.author?.username + " requested => " + msgSplit[1])
         val channels = message.getGuild().channelIds
         var voiceChannel: VoiceChannel? = null
@@ -70,9 +73,24 @@ suspend fun playMusic(message: Message, clientDiscord: Kord) {
             }
         }
 
-        println(voiceChannel)
+        println(voiceChannel?.name)
 
-        val musicBytes = getYoutubeAudio("https://www.youtube.com/watch?v=4vPb_VNSWrc")
+        // TODO
+        // Improvement : - Don't download the file and play it directly in 'streaming'
+        //               - Use libopus & libmp3lame to convert
+        val musicBytesMp3 = getYoutubeAudio(ytLink)
+
+        // Write .mp3 file
+        val filePath = "./musics/" + ytLink.split("=")[1]
+        File("$filePath.mp3").writeBytes(musicBytesMp3)
+        println("Finish writing .mp3")
+        // Convert .mp3 to .opus
+        "ffmpeg -i $filePath.mp3 $filePath.opus".runCommand(File("./"))
+        println("Finish ffmpeg command")
+        val musicBytes = File("$filePath.opus").readBytes()
+        println("Finish reading .opus file")
+
+        // Need OPUS encoded byte array
         voiceChannel?.connect {
             audioProvider {
                 AudioFrame.fromData(musicBytes)
@@ -92,10 +110,10 @@ suspend fun getYoutubeAudio(ytLink: String): ByteArray {
     val ytId = ytLink.substring(ytLink.indexOf("?v=") + "?v=".length)
     val quality = "128"
     var res: HttpResponse = clientHttp.get("https://www.yt-download.org/file/mp3/$ytId")
-    var text = res.readText()
-    var startIndex = text.indexOf("<a href=\"https://www.yt-download.org/download/$ytId/mp3/$quality/") + "<a href=\"".length
-    var endIndex = text.indexOf("\" class", startIndex)
-    var downloadLink = text.substring(startIndex, endIndex)
+    val text = res.readText()
+    val startIndex = text.indexOf("<a href=\"https://www.yt-download.org/download/$ytId/mp3/$quality/") + "<a href=\"".length
+    val endIndex = text.indexOf("\" class", startIndex)
+    val downloadLink = text.substring(startIndex, endIndex)
     println(downloadLink)
     res = clientHttp.get(downloadLink)
     println("Finish download music!")
@@ -129,7 +147,16 @@ suspend fun pong(message: Message) {
     val response = message.channel.createMessage("Pong!")
     response.addReaction(pingPong)
 
-    delay(5000)
-    message.delete()
-    response.delete()
+    //delay(5000)
+    //message.delete()
+   // response.delete()
+}
+
+fun String.runCommand(workingDir: File) {
+    ProcessBuilder(*split(" ").toTypedArray())
+        .directory(workingDir)
+        .redirectOutput(ProcessBuilder.Redirect.INHERIT)
+        .redirectError(ProcessBuilder.Redirect.INHERIT)
+        .start()
+        .waitFor(60, TimeUnit.MINUTES)
 }
