@@ -30,6 +30,8 @@ val lavaplayerManager = DefaultAudioPlayerManager()
 // to use YouTube, we tell LavaPlayer to use remote sources, like YouTube.
 @OptIn(KordVoice::class)
 val connections: MutableMap<Snowflake, VoiceConnection> = mutableMapOf()
+var pingPongLevel: Int = 0;
+var pingPongLevelUpMessage: String = "";
 
 suspend fun main() {
     val clientDiscord = Kord(dotenv["DISCORD_BOT_TOKEN"])
@@ -92,14 +94,14 @@ suspend fun playMusic(member: Member?, message: Message, clientDiscord: Kord) {
     val player = lavaplayerManager.createPlayer()
     var track: AudioTrack? = null
 
-    // Check if it's a youtube link
+    // Check if it's a YouTube link
     if (msgSplit[1].startsWith("https://www.youtube.com/") || msgSplit[1].startsWith("https://youtu.be/")) {
-        // Youtube link
+        // YouTube link
         val ytLink = msgSplit[1]
         track = lavaplayerManager.playTrack(ytLink, player)
         message.channel.createMessage(message.author?.username + " requested => " + msgSplit[1])
     } else {
-        // Not a youtube link
+        // Not a YouTube link
         // Lavaplayer can search video for us
         val query = "ytsearch: " + msgSplit.drop(1).joinToString(" ")
         track = lavaplayerManager.playTrack(query, player)
@@ -157,12 +159,26 @@ suspend fun pong(message: Message) {
     println("Call pong !")
     val pingPong = ReactionEmoji.Unicode("\uD83C\uDFD3")
     val response = message.channel.createMessage("Pong!")
+    pingPongLevel++
+
+    when (pingPongLevel) {
+        3 -> pingPongLevelUpMessage = "You're starting to get good"
+        5 -> pingPongLevelUpMessage = "You're now a ping pong master"
+        10 -> {
+            pingPongLevelUpMessage = "The ball hit you in the head and you forgot all your skills"
+            pingPongLevel = 0
+        }
+        else -> {
+            pingPongLevelUpMessage = "you're getting better!"
+        }
+    }
+
+    message.channel.createMessage("$pingPongLevelUpMessage")
+
     response.addReaction(pingPong)
 
-    //delay(5000)
-    //message.delete()
-   // response.delete()
 }
+
 
 suspend fun help(message: Message) = message.channel.createMessage("!pong -> ping-pong\n" +
         "$<crypto> -> Price of a crypto, example : ${"$"}btc\n" +
