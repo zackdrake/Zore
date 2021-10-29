@@ -73,7 +73,7 @@ suspend fun playMusic(message: Message, clientDiscord: Kord) {
             }
         }
 
-        println(voiceChannel?.name)
+        //println(voiceChannel!!.name)
 
         // TODO
         // Improvement : - Don't download the file and play it directly in 'streaming'
@@ -83,18 +83,16 @@ suspend fun playMusic(message: Message, clientDiscord: Kord) {
         // Write .mp3 file
         val filePath = "./musics/" + ytLink.split("=")[1]
         File("$filePath.mp3").writeBytes(musicBytesMp3)
-        println("Finish writing .mp3")
+        //println("Finish writing .mp3")
         // Convert .mp3 to .opus
         "ffmpeg -i $filePath.mp3 $filePath.opus".runCommand(File("./"))
-        println("Finish ffmpeg command")
+        //println("Finish ffmpeg command")
         val musicBytes = File("$filePath.opus").readBytes()
-        println("Finish reading .opus file")
+        //println("Finish reading .opus file")
 
         // Need OPUS encoded byte array
-        voiceChannel?.connect {
-            audioProvider {
-                AudioFrame.fromData(musicBytes)
-            }
+        val voiceConnection = voiceChannel!!.connect {
+            audioProvider { AudioFrame.fromData(musicBytes) }
         }
         println("Bot connect to channel !")
     } else {
@@ -106,7 +104,7 @@ suspend fun playMusic(message: Message, clientDiscord: Kord) {
 
 // Get direct link with savedeo parsing
 suspend fun getYoutubeAudio(ytLink: String): ByteArray {
-    println("Start get download link !")
+    //println("Start get download link !")
     val ytId = ytLink.substring(ytLink.indexOf("?v=") + "?v=".length)
     val quality = "128"
     var res: HttpResponse = clientHttp.get("https://www.yt-download.org/file/mp3/$ytId")
@@ -114,9 +112,9 @@ suspend fun getYoutubeAudio(ytLink: String): ByteArray {
     val startIndex = text.indexOf("<a href=\"https://www.yt-download.org/download/$ytId/mp3/$quality/") + "<a href=\"".length
     val endIndex = text.indexOf("\" class", startIndex)
     val downloadLink = text.substring(startIndex, endIndex)
-    println(downloadLink)
+    //println(downloadLink)
     res = clientHttp.get(downloadLink)
-    println("Finish download music!")
+    //println("Finish download music!")
     return res.readBytes()
 }
 
