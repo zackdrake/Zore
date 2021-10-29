@@ -1,9 +1,18 @@
+import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler
+import com.sedmelluq.discord.lavaplayer.player.AudioPlayer
+import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager
+import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException
+import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack
 import dev.kord.common.annotation.KordVoice
+import dev.kord.common.entity.Snowflake
 import dev.kord.core.*
 import dev.kord.core.entity.*
 import dev.kord.core.entity.channel.VoiceChannel
 import dev.kord.core.event.message.*
 import dev.kord.voice.AudioFrame
+import dev.kord.voice.VoiceConnection
 import io.github.cdimascio.dotenv.dotenv
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -12,12 +21,20 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 val dotenv = dotenv()
 val clientHttp = HttpClient(CIO)
+val lavaplayerManager = DefaultAudioPlayerManager()
+// to use YouTube, we tell LavaPlayer to use remote sources, like YouTube.
+@OptIn(KordVoice::class)
+val connections: MutableMap<Snowflake, VoiceConnection> = mutableMapOf()
 
 suspend fun main() {
     val clientDiscord = Kord(dotenv["DISCORD_BOT_TOKEN"])
+
+    AudioSourceManagers.registerRemoteSources(lavaplayerManager)
 
     // On message create
     clientDiscord.on<MessageCreateEvent> {
@@ -25,11 +42,13 @@ suspend fun main() {
         if (message.content.startsWith("!")) {
             // More complex commands
             if (message.content.startsWith("!play")) {
-                playMusic(message, clientDiscord)
+                playMusic(member!!, message, clientDiscord)
             }
             // For simple commands
             when(message.content) {
                 "!ping" -> pong(message)
+                "!stop" -> stopMusic(guildId)
+                "!help" -> help(message)
                 else -> {
                     return@on
                 }
@@ -47,75 +66,70 @@ suspend fun main() {
 }
 
 @OptIn(KordVoice::class)
-suspend fun playMusic(message: Message, clientDiscord: Kord) {
-    // TODO
-    // Get first youtube video with music title
-    // If it's a youtube link, just use it
-    // Get the sound and play it
+suspend fun playMusic(member: Member?, message: Message, clientDiscord: Kord) {
     println("Call playMusic()")
+
+    // Check if link or other is passed
     val msgSplit = message.content.split(" ")
     if (msgSplit.size <= 1) {
         message.channel.createMessage("You forgot the music !")
         return
     }
 
+    // Check if user is in a channel
+    val channel = member?.getVoiceState()?.getChannelOrNull()
+    if (channel == null) {
+        message.channel.createMessage("You're not in a channel !")
+        return
+    }
+
+    // Check if already in a channel
+    if (connections.contains(message.getGuild().id)) {
+        // Already playing, shutdown to restart a voice connection
+        connections.remove(message.getGuild().id)!!.leave()
+    }
+
+    val player = lavaplayerManager.createPlayer()
+    var track: AudioTrack? = null
+
     // Check if it's a youtube link
     if (msgSplit[1].startsWith("https://www.youtube.com/") || msgSplit[1].startsWith("https://youtu.be/")) {
         // Youtube link
         val ytLink = msgSplit[1]
+        track = lavaplayerManager.playTrack(ytLink, player)
         message.channel.createMessage(message.author?.username + " requested => " + msgSplit[1])
-        val channels = message.getGuild().channelIds
-        var voiceChannel: VoiceChannel? = null
-        channels.forEach { channel ->
-            voiceChannel = clientDiscord.getChannelOf<VoiceChannel>(id = channel)
-            if (voiceChannel != null) {
-                return@forEach
-            }
-        }
-
-        //println(voiceChannel!!.name)
-
-        // TODO
-        // Improvement : - Don't download the file and play it directly in 'streaming'
-        //               - Use libopus & libmp3lame to convert
-        val musicBytesMp3 = getYoutubeAudio(ytLink)
-
-        // Write .mp3 file
-        val filePath = "./musics/" + ytLink.split("=")[1]
-        File("$filePath.mp3").writeBytes(musicBytesMp3)
-        //println("Finish writing .mp3")
-        // Convert .mp3 to .opus
-        "ffmpeg -i $filePath.mp3 $filePath.opus".runCommand(File("./"))
-        //println("Finish ffmpeg command")
-        val musicBytes = File("$filePath.opus").readBytes()
-        //println("Finish reading .opus file")
-
-        // Need OPUS encoded byte array
-        val voiceConnection = voiceChannel!!.connect {
-            audioProvider { AudioFrame.fromData(musicBytes) }
-        }
-        println("Bot connect to channel !")
     } else {
         // Not a youtube link
-        message.channel.createMessage(message.author?.username + " requested => " + msgSplit.drop(1).joinToString(" "))
-
+        // Lavaplayer can search video for us
+        val query = "ytsearch: " + msgSplit.drop(1).joinToString(" ")
+        track = lavaplayerManager.playTrack(query, player)
+        message.channel.createMessage(message.author?.username + " requested => " + track.info?.uri)
     }
+
+    println(track?.info?.uri)
+
+    if (track == null) {
+        // Fail to find track
+        message.channel.createMessage("Fail to find music...")
+    }
+
+    // Need OPUS encoded byte array
+    val voiceConnection = (channel as VoiceChannel).connect {
+        audioProvider { AudioFrame.fromData(player.provide()?.data) }
+    }
+
+    connections[message.getGuild().id] = voiceConnection
 }
 
-// Get direct link with savedeo parsing
-suspend fun getYoutubeAudio(ytLink: String): ByteArray {
-    //println("Start get download link !")
-    val ytId = ytLink.substring(ytLink.indexOf("?v=") + "?v=".length)
-    val quality = "128"
-    var res: HttpResponse = clientHttp.get("https://www.yt-download.org/file/mp3/$ytId")
-    val text = res.readText()
-    val startIndex = text.indexOf("<a href=\"https://www.yt-download.org/download/$ytId/mp3/$quality/") + "<a href=\"".length
-    val endIndex = text.indexOf("\" class", startIndex)
-    val downloadLink = text.substring(startIndex, endIndex)
-    //println(downloadLink)
-    res = clientHttp.get(downloadLink)
-    //println("Finish download music!")
-    return res.readBytes()
+@OptIn(KordVoice::class)
+suspend fun stopMusic(guildId: Snowflake?) {
+    println("Call stopMusic()")
+    if (guildId != null) {
+        if (connections.contains(guildId)) {
+            // Already playing, shutdown to restart a voice connection
+            connections.remove(guildId)!!.leave()
+        }
+    }
 }
 
 suspend fun getCryptoPrice(message: Message, tokenName: String) {
@@ -150,6 +164,39 @@ suspend fun pong(message: Message) {
    // response.delete()
 }
 
+suspend fun help(message: Message) = message.channel.createMessage("!pong -> ping-pong\n" +
+        "$<crypto> -> Price of a crypto, example : ${"$"}btc\n" +
+        "!play <youtube link OR search term>, example : !play vald\n" +
+        "!stop -> Stop music")
+
+// lavaplayer isn't super kotlin-friendly, so we'll make it nicer to work with
+suspend fun DefaultAudioPlayerManager.playTrack(query: String, player: AudioPlayer): AudioTrack {
+    val track = suspendCoroutine<AudioTrack> {
+        this.loadItem(query, object : AudioLoadResultHandler {
+            override fun trackLoaded(track: AudioTrack) {
+                it.resume(track)
+            }
+
+            override fun playlistLoaded(playlist: AudioPlaylist) {
+                it.resume(playlist.tracks.first())
+            }
+
+            override fun noMatches() {
+                TODO()
+            }
+
+            override fun loadFailed(exception: FriendlyException?) {
+                TODO()
+            }
+        })
+    }
+
+    player.playTrack(track)
+
+    return track
+}
+
+// Probably useless after voice rework
 fun String.runCommand(workingDir: File) {
     ProcessBuilder(*split(" ").toTypedArray())
         .directory(workingDir)
